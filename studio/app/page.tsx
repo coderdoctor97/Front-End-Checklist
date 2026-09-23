@@ -79,6 +79,12 @@ export default function Page() {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
+  // Hydration guard: persistence effects must not run until the mount effect
+  // has loaded localStorage into state. A state flag (not a ref) is used so
+  // that pre-hydration effect runs — including React StrictMode double
+  // setups, which share the same render closure — always see `false`.
+  // Writes only happen after a re-render with the loaded values.
+  const [hydrated, setHydrated] = useState(false);
 
   const isDesktop = useMediaQuery("(min-width: 1024px)", true);
 
@@ -86,7 +92,17 @@ export default function Page() {
     setChecked(loadJson("fec-checked", {}));
     const savedP = loadJson<AiProvider[]>("fec-providers", []);
     setProviders(savedP);
-    setActiveProviderId(loadJson("fec-active-provider", ""));
+    const savedActiveId = loadJson("fec-active-provider", "");
+    setActiveProviderId(savedActiveId);
+    setModels(loadJson<ModelInfo[]>("fec-models", []));
+    setModelId(loadJson("fec-model-id", ""));
+    setModelQuery(loadJson("fec-model-query", ""));
+    setMaxTokens(loadJson("fec-max-tokens", 16384));
+    setContextWindow(loadJson("fec-context-window", 128000));
+    // Restore the settings form to the saved active provider so the form
+    // shows its name/baseUrl/apiKey immediately after reload.
+    const savedActive = savedP.find((p) => p.id === savedActiveId);
+    if (savedActive) setDraft(savedActive);
     setGhToken(loadJson("fec-gh-token", ""));
     setSelectedRepo(loadJson("fec-repo", null));
     setMessages(loadJson("fec-chat", []));
@@ -97,17 +113,69 @@ export default function Page() {
     else setSidebarCollapsed(!window.matchMedia("(min-width: 1024px)").matches);
 
     setChatCollapsed(loadJson("fec-chat-collapsed", false));
+    // Unlock persistence only after all state above has been scheduled.
+    // Because this is state (not a ref), effects running in this same
+    // commit — including StrictMode's second setup — still see `false`
+    // and skip their writes.
+    setHydrated(true);
   }, []);
 
-  useEffect(() => saveJson("fec-checked", checked), [checked]);
-  useEffect(() => saveJson("fec-providers", providers), [providers]);
-  useEffect(() => saveJson("fec-active-provider", activeProviderId), [activeProviderId]);
-  useEffect(() => saveJson("fec-gh-token", ghToken), [ghToken]);
-  useEffect(() => saveJson("fec-repo", selectedRepo), [selectedRepo]);
-  useEffect(() => saveJson("fec-chat", messages), [messages]);
-  useEffect(() => saveJson("fec-profile", profile), [profile]);
-  useEffect(() => saveJson("fec-sidebar-collapsed", sidebarCollapsed), [sidebarCollapsed]);
-  useEffect(() => saveJson("fec-chat-collapsed", chatCollapsed), [chatCollapsed]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-checked", checked);
+  }, [checked, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-providers", providers);
+  }, [providers, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-active-provider", activeProviderId);
+  }, [activeProviderId, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-models", models);
+  }, [models, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-model-id", modelId);
+  }, [modelId, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-model-query", modelQuery);
+  }, [modelQuery, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-max-tokens", maxTokens);
+  }, [maxTokens, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-context-window", contextWindow);
+  }, [contextWindow, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-gh-token", ghToken);
+  }, [ghToken, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-repo", selectedRepo);
+  }, [selectedRepo, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-chat", messages);
+  }, [messages, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-profile", profile);
+  }, [profile, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-sidebar-collapsed", sidebarCollapsed);
+  }, [sidebarCollapsed, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJson("fec-chat-collapsed", chatCollapsed);
+  }, [chatCollapsed, hydrated]);
 
   const cat = categories.find((c) => c.id === catId) || categories[0];
   const provider = providers.find((p) => p.id === activeProviderId);

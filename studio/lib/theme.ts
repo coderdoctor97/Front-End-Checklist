@@ -1,4 +1,5 @@
 import themesData from "../data/themes.json";
+import { validateAgainstSchema } from "./theme-schema";
 
 export type ThemeMode = "dark" | "light";
 
@@ -133,6 +134,10 @@ export function getThemeById(id: string): Theme | undefined {
   return PRESET_THEMES.find((t) => t.id === id);
 }
 
+export function isBuiltinThemeId(id: string): boolean {
+  return PRESET_THEMES.some((t) => t.id === id);
+}
+
 export function defaultThemeForMode(mode: ThemeMode): Theme {
   return getThemeById(mode === "dark" ? DEFAULT_DARK_ID : DEFAULT_LIGHT_ID) ?? PRESET_THEMES[0];
 }
@@ -229,4 +234,31 @@ export function validateTheme(input: unknown): ThemeValidation {
 
 export function themeToJson(theme: Theme): string {
   return JSON.stringify(theme, null, 2);
+}
+
+export type ThemeParseResult =
+  | { ok: true; theme: Theme }
+  | { ok: false; errors: string[] };
+
+export function parseThemeJson(json: string): ThemeParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Invalid JSON.";
+    return { ok: false, errors: [message] };
+  }
+  const schemaResult = validateAgainstSchema(parsed);
+  if (!schemaResult.ok) {
+    return { ok: false, errors: schemaResult.errors };
+  }
+  const normalized = validateTheme(parsed);
+  if (!normalized.ok) {
+    return { ok: false, errors: normalized.errors };
+  }
+  return { ok: true, theme: normalized.theme };
+}
+
+export function isStoredTheme(value: unknown): value is Theme {
+  return validateTheme(value).ok;
 }

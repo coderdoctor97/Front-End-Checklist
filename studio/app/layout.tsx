@@ -34,8 +34,12 @@ export const viewport: Viewport = {
 };
 
 const themeBootstrap = `(function(){try{
-var raw=localStorage.getItem("fec-theme");if(!raw)return;
-var t=JSON.parse(raw);if(!t||typeof t!=="object")return;
+var raw=localStorage.getItem("fec-theme");
+var mode="dark";var t=null;
+if(raw){try{t=JSON.parse(raw);}catch(e){t=null;}if(!t||typeof t!=="object")t=null;}
+if(t&&(t.mode==="dark"||t.mode==="light"))mode=t.mode;
+document.documentElement.setAttribute("data-mode",mode);
+if(!t)return;
 var d=[];
 function put(n,v){if(typeof v!=="string"||!v)return;if(/[{};]/.test(v))return;d.push(n+":"+v);}
 var c={background:"--bg",surface:"--surface",surfaceHover:"--surface-hover",elevated:"--elevated",foreground:"--fg",foregroundMuted:"--fg-muted",foregroundSubtle:"--fg-subtle",border:"--border",borderStrong:"--border-strong",accent:"--accent",accentHover:"--accent-hover",accentForeground:"--accent-fg",critical:"--critical",high:"--high",medium:"--medium",low:"--low",success:"--success",warning:"--warning",ring:"--ring"};
@@ -56,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${display.variable} ${body.variable} ${mono.variable}`}
     >
       <head>

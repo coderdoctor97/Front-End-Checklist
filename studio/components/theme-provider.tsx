@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,6 +14,7 @@ import { loadJson, saveJson } from "../lib/storage";
 import {
   applyTheme,
   defaultThemeForMode,
+  isStoredTheme,
   PRESET_THEMES,
   type Theme,
   type ThemeMode,
@@ -42,18 +44,23 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => defaultThemeForMode("dark"));
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     const storedCustom = loadJson<Theme[]>(KEY_CUSTOM, []);
-    setCustomThemes(Array.isArray(storedCustom) ? storedCustom : []);
+    setCustomThemes(Array.isArray(storedCustom) ? storedCustom.filter(isStoredTheme) : []);
 
     const storedActive = loadJson<Theme | null>(KEY_ACTIVE, null);
-    const next = storedActive ?? defaultThemeForMode("dark");
+    const next = storedActive && isStoredTheme(storedActive) ? storedActive : defaultThemeForMode("dark");
     setThemeState(next);
     applyTheme(next);
+
+    hydratedRef.current = true;
   }, []);
 
-  const persistModeTheme = useCallback((next: Theme) => {
+  const persistActiveTheme = useCallback((next: Theme) => {
+    if (!hydratedRef.current) return;
+    saveJson(KEY_ACTIVE, next);
     saveJson(next.mode === "dark" ? KEY_DARK : KEY_LIGHT, next);
   }, []);
 
@@ -61,10 +68,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     (next: Theme) => {
       setThemeState(next);
       applyTheme(next);
-      saveJson(KEY_ACTIVE, next);
-      persistModeTheme(next);
+      persistActiveTheme(next);
     },
-    [persistModeTheme]
+    [persistActiveTheme]
   );
 
   const setMode = useCallback(
@@ -88,7 +94,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setCustomThemes((prev) => {
         const i = prev.findIndex((t) => t.id === next.id);
         const updated = i >= 0 ? prev.map((t) => (t.id === next.id ? next : t)) : [...prev, next];
-        saveJson(KEY_CUSTOM, updated);
+        if (hydratedRef.current) saveJson(KEY_CUSTOM, updated);
         return updated;
       });
       setTheme(next);
@@ -100,11 +106,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setCustomThemes((prev) => {
         const updated = prev.filter((t) => t.id !== id);
-        saveJson(KEY_CUSTOM, updated);
+        if (hydratedRef.current) saveJson(KEY_CUSTOM, updated);
         return updated;
       });
+      if (theme.id === id) {
+        const fallback = defaultThemeForMode(theme.mode);
+        setThemeState(fallback);
+        applyTheme(fallback);
+        persistActiveTheme(fallback);
+      }
     },
-    []
+    [theme.id, theme.mode, persistActiveTheme]
   );
 
   const resetTheme = useCallback(() => {

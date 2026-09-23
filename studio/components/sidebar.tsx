@@ -1,6 +1,7 @@
 "use client";
 
 import { PanelLeftClose, PanelLeftOpen, Search, Settings } from "lucide-react";
+import { BrandLogo } from "./brand-logo";
 import { CategoryIcon } from "./category-icon";
 import { cn } from "../lib/cn";
 import type { Category } from "../lib/types";
@@ -51,32 +52,37 @@ export function Sidebar({
     >
       {/* Brand */}
       <div className={cn("flex items-center gap-2.5 px-4 pt-5 pb-4", collapsed && "justify-center px-0")}>
-        <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-border-strong bg-[color-mix(in_oklab,var(--accent)_16%,var(--surface))] font-display text-[15px] font-bold tracking-tight text-accent">
-          FC
-        </div>
-        <div
-          className={cn(
-            "min-w-0 leading-tight transition-opacity duration-200",
-            collapsed ? "pointer-events-none w-0 opacity-0" : "opacity-100"
-          )}
-        >
-          <p className="truncate font-display text-[13px] font-semibold tracking-tight">
-            front end checklist
-          </p>
-          <p className="truncate text-[11px] text-foreground-subtle">studio</p>
-        </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!collapsed}
-          className={cn(
-            "ml-auto grid size-8 shrink-0 place-items-center rounded-lg border border-border text-foreground-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-foreground",
-            collapsed && "absolute top-5 right-3 ml-0"
-          )}
-        >
-          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-        </button>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Expand sidebar"
+            aria-expanded={false}
+            className="group relative grid size-9 shrink-0 place-items-center rounded-xl"
+          >
+            <BrandLogo size={36} className="transition-opacity duration-150 group-hover:opacity-0" />
+            <PanelLeftOpen className="absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2 scale-90 opacity-0 transition-[opacity,transform] duration-150 group-hover:scale-100 group-hover:opacity-100" />
+          </button>
+        ) : (
+          <>
+            <BrandLogo size={36} />
+            <div className="min-w-0 leading-tight transition-opacity duration-200 opacity-100">
+              <p className="truncate font-display text-[13px] font-semibold tracking-tight">
+                front end checklist
+              </p>
+              <p className="truncate text-[11px] text-foreground-subtle">studio</p>
+            </div>
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Collapse sidebar"
+              aria-expanded={true}
+              className="ml-auto grid size-8 shrink-0 place-items-center rounded-lg border border-border text-foreground-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-foreground"
+            >
+              <PanelLeftClose className="size-4" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Search */}
