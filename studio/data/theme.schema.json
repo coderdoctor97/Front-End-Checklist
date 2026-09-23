@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://frontendchecklist.io/studio/theme.schema.json",
+  "title": "Studio Theme",
+  "description": "Schema for a Front-End Checklist Studio theme. Any CSS color string (hex, rgb, hsl, oklch, named) is accepted for color tokens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "mode", "colors", "fonts"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Stable machine identifier (lowercase, kebab-case)."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable theme name."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dark", "light"],
+      "description": "Base mode. Drives the sun/moon toggle and native form-control rendering."
+    },
+    "author": { "type": "string" },
+    "radius": {
+      "type": "string",
+      "description": "Base corner radius as a CSS length (e.g. \"0.75rem\", \"12px\").",
+      "default": "0.75rem"
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "background",
+        "surface",
+        "surfaceHover",
+        "elevated",
+        "foreground",
+        "foregroundMuted",
+        "foregroundSubtle",
+        "border",
+        "borderStrong",
+        "accent",
+        "accentHover",
+        "accentForeground",
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "success",
+        "warning",
+        "ring"
+      ],
+      "properties": {
+        "background": { "$ref": "#/definitions/color" },
+        "surface": { "$ref": "#/definitions/color" },
+        "surfaceHover": { "$ref": "#/definitions/color" },
+        "elevated": { "$ref": "#/definitions/color" },
+        "foreground": { "$ref": "#/definitions/color" },
+        "foregroundMuted": { "$ref": "#/definitions/color" },
+        "foregroundSubtle": { "$ref": "#/definitions/color" },
+        "border": { "$ref": "#/definitions/color" },
+        "borderStrong": { "$ref": "#/definitions/color" },
+        "accent": { "$ref": "#/definitions/color" },
+        "accentHover": { "$ref": "#/definitions/color" },
+        "accentForeground": { "$ref": "#/definitions/color" },
+        "critical": { "$ref": "#/definitions/color" },
+        "high": { "$ref": "#/definitions/color" },
+        "medium": { "$ref": "#/definitions/color" },
+        "low": { "$ref": "#/definitions/color" },
+        "success": { "$ref": "#/definitions/color" },
+        "warning": { "$ref": "#/definitions/color" },
+        "ring": { "$ref": "#/definitions/color" }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display", "body", "mono"],
+      "properties": {
+        "display": {
+          "type": "string",
+          "enum": ["bricolage", "instrument", "jetbrains", "system", "georgia"],
+          "description": "Font key for headings and brand marks."
+        },
+        "body": {
+          "type": "string",
+          "enum": ["bricolage", "instrument", "jetbrains", "system", "georgia"],
+          "description": "Font key for interface and body copy."
+        },
+        "mono": {
+          "type": "string",
+          "enum": ["bricolage", "instrument", "jetbrains", "system", "georgia"],
+          "description": "Font key for code and generated prompts."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "color": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Any valid CSS color value."
+    }
+  }
+}

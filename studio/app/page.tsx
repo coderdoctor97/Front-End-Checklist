@@ -24,7 +24,13 @@ import {
   searchCodeSkills,
   searchPublicRepos,
 } from "../lib/github";
-import { Markdown } from "../components/Markdown";
+import { EMPTY_PROFILE, type Profile } from "../lib/profile";
+import { useMediaQuery } from "../lib/use-media-query";
+import { Sidebar } from "../components/sidebar";
+import { MainPanel } from "../components/main-panel";
+import { ChatPane } from "../components/chat-pane";
+import { SettingsModal, type SettingsTab } from "../components/settings-modal";
+import { PromptModal } from "../components/prompt-modal";
 
 const CONTENT_MCP = data.mcp.contentChecklist;
 const GITHUB_MCP = data.mcp.github;
@@ -60,7 +66,6 @@ export default function Page() {
   const [promptItem, setPromptItem] = useState<ChecklistItem | null>(null);
   const [generated, setGenerated] = useState("");
   const [modifier, setModifier] = useState<PromptModifier>("default");
-  const [setupOpen, setSetupOpen] = useState(false);
   const [draft, setDraft] = useState<AiProvider>({
     id: "",
     name: "OpenAI-compatible",
@@ -68,15 +73,30 @@ export default function Page() {
     apiKey: "",
   });
 
+  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  const [search, setSearch] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
+
+  const isDesktop = useMediaQuery("(min-width: 1024px)", true);
+
   useEffect(() => {
     setChecked(loadJson("fec-checked", {}));
     const savedP = loadJson<AiProvider[]>("fec-providers", []);
     setProviders(savedP);
-    const ap = loadJson("fec-active-provider", "");
-    setActiveProviderId(ap);
+    setActiveProviderId(loadJson("fec-active-provider", ""));
     setGhToken(loadJson("fec-gh-token", ""));
     setSelectedRepo(loadJson("fec-repo", null));
     setMessages(loadJson("fec-chat", []));
+    setProfile(loadJson<Profile>("fec-profile", EMPTY_PROFILE));
+
+    const storedSidebar = loadJson<boolean | null>("fec-sidebar-collapsed", null);
+    if (typeof storedSidebar === "boolean") setSidebarCollapsed(storedSidebar);
+    else setSidebarCollapsed(!window.matchMedia("(min-width: 1024px)").matches);
+
+    setChatCollapsed(loadJson("fec-chat-collapsed", false));
   }, []);
 
   useEffect(() => saveJson("fec-checked", checked), [checked]);
@@ -85,6 +105,9 @@ export default function Page() {
   useEffect(() => saveJson("fec-gh-token", ghToken), [ghToken]);
   useEffect(() => saveJson("fec-repo", selectedRepo), [selectedRepo]);
   useEffect(() => saveJson("fec-chat", messages), [messages]);
+  useEffect(() => saveJson("fec-profile", profile), [profile]);
+  useEffect(() => saveJson("fec-sidebar-collapsed", sidebarCollapsed), [sidebarCollapsed]);
+  useEffect(() => saveJson("fec-chat-collapsed", chatCollapsed), [chatCollapsed]);
 
   const cat = categories.find((c) => c.id === catId) || categories[0];
   const provider = providers.find((p) => p.id === activeProviderId);
@@ -92,11 +115,17 @@ export default function Page() {
   const done = Object.values(checked).filter(Boolean).length;
   const total = categories.reduce((n, c) => n + c.items.length, 0);
 
-  const filteredModels = models.filter((m) =>
-    m.id.toLowerCase().includes(modelQuery.toLowerCase())
-  );
+  const counts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of categories) {
+      map[c.id] = c.items.filter((i) => checked[`${c.id}:${i.id}`]).length;
+    }
+    return map;
+  }, [checked]);
 
-  async function loadModels(p = provider) {
+  const catDone = counts[cat.id] ?? 0;
+
+  async function loadModels(p: AiProvider | undefined = provider) {
     if (!p?.baseUrl || !p.apiKey) return;
     setError("");
     try {
@@ -130,6 +159,20 @@ export default function Page() {
     setDraft(next);
   }
 
+  function selectProvider(id: string) {
+    setActiveProviderId(id);
+    const p = providers.find((x) => x.id === id);
+    if (p) setDraft(p);
+  }
+
+  function selectModel(id: string) {
+    setModelId(id);
+    const m = models.find((x) => x.id === id);
+    const lim = defaultLimits(m);
+    setMaxTokens(lim.maxTokens);
+    setContextWindow(lim.contextWindow);
+  }
+
   async function connectGithub() {
     setError("");
     try {
@@ -159,26 +202,41 @@ export default function Page() {
       return;
     }
     setSelectedRepo(parsed);
+    setError("");
   }
 
   async function generatePrompt(item: ChecklistItem, mod: PromptModifier = modifier) {
-    if (!provider) return;
+    if (!provider) {
+      setError("Configure an AI provider first.");
+      setSettingsOpen(true);
+      setSettingsTab("ai");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const skills = selectedRepo
-        ? await searchCodeSkills(selectedRepo, item.title.split(" ").slice(0, 4).join(" "), ghToken || undefined)
+        ? await searchCodeSkills(
+            selectedRepo,
+            item.title.split(" ").slice(0, 4).join(" "),
+            ghToken || undefined
+          )
         : [];
-      const sys = `You craft implementation prompts for external coding agents (Cursor, Claude Code, Codex). Output markdown. Do not wrap the whole answer in a single giant code fence.`;
+      const sys =
+        "You craft implementation prompts for external coding agents (Cursor, Claude Code, Codex). Output markdown. Do not wrap the whole answer in a single giant code fence.";
       const user = [
         `Checklist item: ${item.title}`,
         `Priority: ${item.priority}`,
         `Description: ${item.description}`,
         `Rule page: ${item.url}`,
-        selectedRepo ? `Target repository: ${selectedRepo.fullName} (${selectedRepo.url})` : "No repository selected yet.",
+        selectedRepo
+          ? `Target repository: ${selectedRepo.fullName} (${selectedRepo.url})`
+          : "No repository selected yet.",
         `Content Checklist MCP server: ${CONTENT_MCP}`,
         `GitHub MCP server: ${GITHUB_MCP}`,
-        skills.length ? `Relevant files/skills found in the repo:\n${skills.join("\n")}` : "No GitHub code search hits (token may lack code-search scope, or repo is empty).",
+        skills.length
+          ? `Relevant files/skills found in the repo:\n${skills.join("\n")}`
+          : "No GitHub code search hits (token may lack code-search scope, or repo is empty).",
         modifierInstruction[mod],
         "The prompt MUST instruct the coding agent to:",
         "1. Connect to the Content Checklist MCP and fetch this rule plus related rules.",
@@ -208,7 +266,10 @@ export default function Page() {
 
   async function sendChat() {
     if (!provider || !input.trim()) return;
-    const next: ChatMessage[] = [...messages, { role: "user", content: input.trim() }];
+    const next: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: input.trim(), at: Date.now() },
+    ];
     setMessages(next);
     setInput("");
     setBusy(true);
@@ -225,7 +286,7 @@ export default function Page() {
         maxTokens,
         messages: [sys, ...next],
       });
-      setMessages([...next, { role: "assistant", content: reply }]);
+      setMessages([...next, { role: "assistant", content: reply, at: Date.now() }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chat failed");
     } finally {
@@ -233,287 +294,128 @@ export default function Page() {
     }
   }
 
-  const catDone = useMemo(
-    () => cat.items.filter((i) => checked[`${cat.id}:${i.id}`]).length,
-    [cat, checked]
+  function openSettings(tab: SettingsTab = "profile") {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  }
+
+  function selectCategory(id: string) {
+    setCatId(id);
+    if (!isDesktop) setSidebarCollapsed(true);
+  }
+
+  const chatNode = (
+    <ChatPane
+      collapsed={chatCollapsed}
+      onToggleCollapsed={() => setChatCollapsed((v) => !v)}
+      messages={messages}
+      input={input}
+      onInput={setInput}
+      onSend={sendChat}
+      onClear={() => setMessages([])}
+      busy={busy}
+      aiReady={aiReady}
+      selectedRepo={selectedRepo}
+      pasteUrl={pasteUrl}
+      onPasteUrl={setPasteUrl}
+      onApplyRepo={applyPastedRepo}
+      profile={profile}
+      modelLabel={aiReady ? modelId : "AI not configured"}
+      onOpenSettings={openSettings}
+      overlay={!isDesktop}
+    />
   );
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <p className="brand">Front-End Checklist</p>
-        <p className="sub">Interactive review for humans and coding agents</p>
-        <div className="row" style={{ marginBottom: 12 }}>
-          <button className="btn small" onClick={() => setSetupOpen(true)}>
-            AI & GitHub setup
-          </button>
-        </div>
-        {categories.map((c) => {
-          const n = c.items.filter((i) => checked[`${c.id}:${i.id}`]).length;
-          return (
-            <div
-              key={c.id}
-              className={`nav-item ${c.id === catId ? "active" : ""}`}
-              onClick={() => setCatId(c.id)}
-            >
-              <div>
-                <strong>{c.title}</strong>
-                <div className="sub" style={{ margin: 0 }}>
-                  {n}/{c.items.length}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </aside>
+    <div className="flex h-dvh w-full overflow-hidden bg-background">
+      <Sidebar
+        categories={categories}
+        activeId={catId}
+        onSelect={selectCategory}
+        counts={counts}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((v) => !v)}
+        profile={profile}
+        onOpenSettings={() => openSettings("profile")}
+        search={search}
+        onSearch={setSearch}
+      />
 
-      <main className="main">
-        <div className="toolbar">
-          <div>
-            <h1 className="h1">{cat.title}</h1>
-            <p className="progress">
-              {cat.description} · {catDone}/{cat.items.length} in this category · {done}/{total} overall
-            </p>
-          </div>
-          <div className="row">
-            <span className="badge">{selectedRepo ? selectedRepo.fullName : "No repo"}</span>
-            <span className="badge">{aiReady ? modelId : "AI not configured"}</span>
-          </div>
-        </div>
-        {error && (
-          <div className="card" style={{ borderColor: "var(--crit)", color: "var(--crit)" }}>
-            {error}
-          </div>
-        )}
-        {cat.items.map((item) => {
-          const key = `${cat.id}:${item.id}`;
-          const on = Boolean(checked[key]);
-          return (
-            <article className="card" key={item.id}>
-              <div className="item-head">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={(e) => setChecked((s) => ({ ...s, [key]: e.target.checked }))}
-                  aria-label={item.title}
-                />
-                <h3>{item.title}</h3>
-                <span className={`badge ${item.priority}`}>{item.priority}</span>
-                {on && aiReady && (
-                  <button className="btn small" onClick={() => generatePrompt(item)} disabled={busy}>
-                    Ask AI for the prompt
-                  </button>
-                )}
-              </div>
-              <p className="desc">
-                {item.description}{" "}
-                <a href={item.url} target="_blank" rel="noreferrer">
-                  Rule
-                </a>
-              </p>
-            </article>
-          );
-        })}
-      </main>
+      <MainPanel
+        category={cat}
+        categoryDone={catDone}
+        totalDone={done}
+        total={total}
+        checked={checked}
+        onToggleItem={(key) => setChecked((s) => ({ ...s, [key]: !s[key] }))}
+        onExplain={(item) => window.open(item.url, "_blank", "noreferrer")}
+        onGenerate={(item) => generatePrompt(item)}
+        aiReady={aiReady}
+        busy={busy}
+        error={error}
+        repoLabel={selectedRepo ? selectedRepo.fullName : "No repo"}
+        modelLabel={aiReady ? modelId : "AI not configured"}
+        chatCollapsed={chatCollapsed}
+        onToggleChat={() => setChatCollapsed((v) => !v)}
+        search={search}
+        onClearSearch={() => setSearch("")}
+      />
 
-      <aside className="chat-pane">
-        <h2 style={{ marginTop: 0 }}>Assistant</h2>
-        <p className="sub">
-          Chat with your provider. Prompts are meant to be copied into Cursor, Claude Code, or similar.
-        </p>
-        {!selectedRepo && (
-          <div className="card">
-            <strong>Select a repository before chatting</strong>
-            <div className="field" style={{ marginTop: 8 }}>
-              <label>Paste GitHub URL or owner/name</label>
-              <input value={pasteUrl} onChange={(e) => setPasteUrl(e.target.value)} placeholder="https://github.com/org/repo" />
-            </div>
-            <button className="btn small" onClick={applyPastedRepo}>
-              Use this repo
-            </button>
-          </div>
-        )}
-        <div className="messages">
-          {messages.map((m, i) => (
-            <div key={i} className={`bubble ${m.role}`}>
-              {m.role === "assistant" ? <Markdown>{m.content}</Markdown> : m.content}
-            </div>
-          ))}
-        </div>
-        <div className="field">
-          <textarea
-            rows={3}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={aiReady ? "Ask how to implement a rule…" : "Configure AI first"}
-            disabled={!aiReady || !selectedRepo}
-          />
-        </div>
-        <div className="row">
-          <button className="btn" onClick={sendChat} disabled={!aiReady || !selectedRepo || busy}>
-            Send
-          </button>
-          <button className="btn ghost" onClick={() => setMessages([])}>
-            Clear
-          </button>
-        </div>
-      </aside>
+      {isDesktop || !chatCollapsed ? chatNode : null}
 
-      {setupOpen && (
-        <div className="modal-bg" onClick={() => setSetupOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>AI provider</h2>
-            <p className="sub">OpenAI-compatible, including local servers. Keys stay in this browser.</p>
-            <div className="field">
-              <label>Provider name</label>
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Endpoint / base URL</label>
-              <input
-                value={draft.baseUrl}
-                placeholder="http://127.0.0.1:1234/v1 or https://api.openai.com/v1"
-                onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label>API key (local keys allowed)</label>
-              <input
-                type="password"
-                value={draft.apiKey}
-                placeholder="sk-... or local-key"
-                onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
-              />
-            </div>
-            <div className="row">
-              <button className="btn" onClick={saveProvider}>
-                Save provider
-              </button>
-              <button className="btn ghost" onClick={() => loadModels({ ...draft, id: draft.id || "tmp" })}>
-                Fetch models
-              </button>
-            </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <label>Search models</label>
-              <input className="search" value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} />
-              <select
-                value={modelId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  setModelId(id);
-                  const m = models.find((x) => x.id === id);
-                  const lim = defaultLimits(m);
-                  setMaxTokens(lim.maxTokens);
-                  setContextWindow(lim.contextWindow);
-                }}
-              >
-                {filteredModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="row">
-              <div className="field">
-                <label>Max output tokens (highest available by default)</label>
-                <input type="number" value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value))} />
-              </div>
-              <div className="field">
-                <label>Max context window</label>
-                <input type="number" value={contextWindow} onChange={(e) => setContextWindow(Number(e.target.value))} />
-              </div>
-            </div>
+      <SettingsModal
+        open={settingsOpen}
+        tab={settingsTab}
+        onTab={setSettingsTab}
+        onClose={() => setSettingsOpen(false)}
+        profile={profile}
+        onProfile={setProfile}
+        error={error}
+        ai={{
+          draft,
+          onDraft: setDraft,
+          providers,
+          activeProviderId,
+          onSelectProvider: selectProvider,
+          onSaveProvider: saveProvider,
+          onLoadModels: () => loadModels({ ...draft, id: draft.id || "tmp" }),
+          models,
+          modelQuery,
+          onModelQuery: setModelQuery,
+          modelId,
+          onSelectModel: selectModel,
+          maxTokens,
+          onMaxTokens: setMaxTokens,
+          contextWindow,
+          onContextWindow: setContextWindow,
+          ghToken,
+          onGhToken: setGhToken,
+          ghUser,
+          onConnectGithub: connectGithub,
+          repoSearch,
+          onRepoSearch: setRepoSearch,
+          onSearchRepos: searchRepos,
+          repos,
+          selectedRepo,
+          onSelectRepo: setSelectedRepo,
+          pasteUrl,
+          onPasteUrl: setPasteUrl,
+          onApplyPastedRepo: applyPastedRepo,
+          contentMcp: CONTENT_MCP,
+          githubMcp: GITHUB_MCP,
+        }}
+      />
 
-            <h2>GitHub</h2>
-            <p className="sub">
-              Authenticate with a classic or fine-grained PAT. OAuth device/app tokens also work if pasted as a bearer token.
-              GitHub MCP: {GITHUB_MCP}
-            </p>
-            <div className="field">
-              <label>Personal access token or OAuth access token</label>
-              <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} />
-            </div>
-            <div className="row">
-              <button className="btn" onClick={connectGithub}>
-                Fetch my repositories
-              </button>
-              {ghUser && <span className="badge">@{ghUser}</span>}
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label>Search public repositories</label>
-              <input value={repoSearch} onChange={(e) => setRepoSearch(e.target.value)} placeholder="next.js app" />
-            </div>
-            <button className="btn ghost" onClick={searchRepos}>
-              Search GitHub
-            </button>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label>Or paste a repository URL</label>
-              <input value={pasteUrl} onChange={(e) => setPasteUrl(e.target.value)} />
-              <button className="btn small" onClick={applyPastedRepo} style={{ marginTop: 6 }}>
-                Select pasted repo
-              </button>
-            </div>
-            <div style={{ maxHeight: 180, overflow: "auto", marginTop: 8 }}>
-              {repos.map((r) => (
-                <div
-                  key={r.fullName}
-                  className="nav-item"
-                  onClick={() => setSelectedRepo(r)}
-                >
-                  {r.fullName} {r.private ? "(private)" : ""}
-                </div>
-              ))}
-            </div>
-            <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
-              <button className="btn ghost" onClick={() => setSetupOpen(false)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {promptItem && (
-        <div className="modal-bg" onClick={() => setPromptItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Implementation prompt</h2>
-            <p className="sub">{promptItem.title}</p>
-            <div className="row" style={{ marginBottom: 10 }}>
-              {(["default", "think-deeper", "think-longer", "shorter"] as PromptModifier[]).map((m) => (
-                <button
-                  key={m}
-                  className={`btn small ${modifier === m ? "" : "ghost"}`}
-                  onClick={() => {
-                    setModifier(m);
-                    generatePrompt(promptItem, m);
-                  }}
-                >
-                  {m === "default" ? "Balanced" : m.replace("-", " ")}
-                </button>
-              ))}
-            </div>
-            <div className="card prompt-out">
-              <Markdown>{generated || (busy ? "Generating…" : "")}</Markdown>
-            </div>
-            <div className="row">
-              <button
-                className="btn"
-                onClick={() => navigator.clipboard.writeText(generated)}
-                disabled={!generated}
-              >
-                Copy
-              </button>
-              <button className="btn ghost" onClick={() => generatePrompt(promptItem)} disabled={busy}>
-                Regenerate
-              </button>
-              <button className="btn ghost" onClick={() => setPromptItem(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PromptModal
+        item={promptItem}
+        generated={generated}
+        busy={busy}
+        modifier={modifier}
+        onModifier={setModifier}
+        onRegenerate={() => promptItem && generatePrompt(promptItem)}
+        onCopy={() => navigator.clipboard.writeText(generated)}
+        onClose={() => setPromptItem(null)}
+      />
     </div>
   );
 }

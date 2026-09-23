@@ -25,6 +25,7 @@ export type AiProvider = {
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  at?: number;
 };
 
 export type RepoRef = {
